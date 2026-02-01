@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ma Bibliothèque Métro - Export PDF</title>
+    
+    <!-- Bibliothèques Graphiques -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- Bibliothèques pour l'export PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --primary-color: #0f172a;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        h1 {
+            color: #1e293b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 0 0 5px 0;
+            font-size: 1.5rem;
+        }
+        
+        p.subtitle {
+            color: #64748b;
+            margin: 0 0 15px 0;
+            font-size: 0.9em;
+        }
+
+        /* --- Controles --- */
+        #controls {
+            background: white;
+            padding: 12px 20px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            border: 1px solid #e2e8f0;
+        }
+
+        input[type="text"], select {
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        input:focus, select:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        input[type="text"] { width: 180px; }
+        select { width: 150px; }
+        #emojiSelect { width: 180px; font-family: "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+
+        button {
+            padding: 10px 16px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        button:hover { 
+            background-color: #334155; 
+            transform: translateY(-1px);
+        }
+        
+        button:active { transform: translateY(0); }
+        
+        /* Bouton Retour (Undo) - Nouveau style plus propre */
+        button#undoBtn {
+            background-color: #ffffff;
+            color: #64748b;
+            border: 1px solid #cbd5e1;
+            padding: 10px 14px;
+        }
+        button#undoBtn:hover {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            border-color: #94a3b8;
+            transform: translateY(-1px);
+        }
+        
+        button#resetBtn { background-color: #ef4444; }
+        button#resetBtn:hover { background-color: #dc2626; }
+
+        button#exportBtn { background-color: #059669; }
+        button#exportBtn:hover { background-color: #047857; }
+
+        button.icon-btn {
+            background: transparent;
+            color: #64748b;
+            padding: 8px;
+            font-size: 18px;
+            border: 1px solid transparent;
+        }
+        button.icon-btn:hover {
+            background: #f1f5f9;
+            color: #1e293b;
+            border-color: #e2e8f0;
+            transform: none;
+        }
+
+        /* --- Carte --- */
+        #metro-map {
+            flex-grow: 1;
+            width: 100%;
+            max-width: 1200px;
+            background-color: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            overflow: hidden;
+            position: relative;
+            cursor: grab;
+        }
+        #metro-map:active { cursor: grabbing; }
+
+        /* Classe ajoutée temporairement pendant l'export */
+        #metro-map.exporting {
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        .station-label {
+            font-size: 11px;
+            font-weight: 700;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            fill: #1e293b;
+            paint-order: stroke;
+            stroke: white;
+            stroke-width: 3px;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+
+        .node-emoji {
+            font-size: 14px;
+            pointer-events: none;
+            user-select: none;
+            font-family: "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+        }
+
+        /* --- Légende --- */
+        #legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+            font-size: 12px;
+            max-height: 350px;
+            overflow-y: auto;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+            min-width: 160px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        /* Modif pour l'export : on enlève la limite de hauteur pour tout voir */
+        #metro-map.exporting #legend {
+            max-height: none;
+            overflow: visible;
+            box-shadow: none;
+            border: 1px solid #999;
+            backdrop-filter: none;
+        }
+
+        .legend-section-title {
+            font-weight: bold;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            font-size: 10px;
+            color: #64748b;
+            letter-spacing: 1px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 4px;
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+        .legend-color { width: 14px; height: 6px; border-radius: 2px; margin-right: 8px; }
+        .legend-emoji-icon { display: inline-block; width: 20px; text-align: center; margin-right: 5px; font-size: 14px; }
+
+        /* --- Modales --- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+        
+        .modal-content {
+            background-color: white;
+            border-radius: 12px;
+            padding: 25px;
+            width: 500px;
+            max-width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+        .modal-header h2 { margin: 0; font-size: 1.25rem; color: #1e293b; }
+        .close-modal { background: none; border: none; font-size: 24px; color: #94a3b8; cursor: pointer; padding: 0; }
+
+        /* Paramètres Styles */
+        .settings-section { margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 20px; }
+        .settings-section h3 { font-size: 0.9rem; text-transform: uppercase; color: #64748b; margin-bottom: 10px; }
+        .setting-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        .setting-row input[type="color"] { width: 40px; height: 38px; padding: 0; border: none; background: none; cursor: pointer; border-radius: 4px; }
+        .setting-row input.edit-label { flex-grow: 1; }
+        .setting-row input.edit-emoji { width: 40px; text-align: center; font-size: 1.2em; }
+        .add-btn { background: #f1f5f9; color: #475569; width: 100%; justify-content: center; border: 1px dashed #cbd5e1; }
+        .add-btn:hover { background: #e2e8f0; }
+        .delete-btn { background: #fee2e2; color: #ef4444; padding: 8px; border-radius: 4px; }
+        .delete-btn:hover { background: #fecaca; }
+        .modal-actions { margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px; padding-top: 10px; }
+
+        /* Export Styles */
+        .export-options { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
+        .export-btn-option {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 20px; border: 2px solid #e2e8f0; border-radius: 8px;
+            cursor: pointer; transition: all 0.2s; width: 100px;
+        }
+        .export-btn-option:hover { border-color: #3b82f6; background-color: #eff6ff; }
+        .export-btn-option span { font-size: 2rem; margin-bottom: 10px; }
+        .export-btn-option strong { color: #1e293b; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Mon Réseau de Lecture</h1>
+    <p class="subtitle">Grille Magnétique • Couleurs = Genres • Emojis = Attributs</p>
+    
+    <div id="controls">
+        <button class="icon-btn" onclick="openSettings()" title="Paramètres (Genres & Marqueurs)">⚙️</button>
+        
+        <input type="text" id="bookInput" placeholder="Titre..." onkeypress="handleEnter(event)">
+        
+        <select id="genreSelect" title="Genre Principal (Ligne)"></select>
+        <select id="genreSelect2" title="Genre Secondaire"></select>
+        
+        <select id="emojiSelect" title="Attribut (Emoji)"></select>
+
+        <button onclick="addBook()">Ajouter</button>
+        <!-- Bouton Undo Stylisé -->
+        <button id="undoBtn" onclick="undoLastBook()" title="Annuler le dernier ajout">↩️</button>
+        
+        <!-- Bouton Export -->
+        <button id="exportBtn" onclick="openExportModal()" title="Exporter en PDF">🖨️ PDF</button>
+        
+        <button id="resetBtn" onclick="resetMap()" title="Tout effacer">Reset</button>
+    </div>
+
+    <div id="metro-map">
+        <div id="legend"></div>
+    </div>
+
+    <!-- Modale Settings -->
+    <div id="settingsModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Paramètres</h2>
+                <button class="close-modal" onclick="closeSettings()">&times;</button>
+            </div>
+            
+            <div class="settings-section">
+                <h3>Lignes (Couleurs)</h3>
+                <div id="genresListForm"></div>
+                <button class="add-btn" onclick="addNewGenreRow()">+ Ajouter une ligne</button>
+            </div>
+
+            <div class="settings-section" style="border-bottom: none;">
+                <h3>Marqueurs (Emojis)</h3>
+                <div id="emojisListForm"></div>
+                <button class="add-btn" onclick="addNewEmojiRow()">+ Ajouter un marqueur</button>
+            </div>
+
+            <div class="modal-actions">
+                <button onclick="closeSettings()" style="background: transparent; color: #64748b; border: 1px solid #e2e8f0;">Annuler</button>
+                <button onclick="saveSettings()">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale Export -->
+    <div id="exportModal" class="modal-overlay">
+        <div class="modal-content" style="width: 400px;">
+            <div class="modal-header">
+                <h2>Exporter la carte</h2>
+                <button class="close-modal" onclick="closeExportModal()">&times;</button>
+            </div>
+            <p style="color: #64748b; text-align: center;">Choisissez le format du papier.<br>L'orientation (Paysage/Portrait) sera automatique.</p>
+            
+            <div class="export-options">
+                <div class="export-btn-option" onclick="exportPDF('a4')">
+                    <span>📄</span>
+                    <strong>A4</strong>
+                </div>
+                <div class="export-btn-option" onclick="exportPDF('a3')">
+                    <span>📑</span>
+                    <strong>A3</strong>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button onclick="closeExportModal()" style="background: transparent;">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const container = document.getElementById('metro-map');
+        const width = container.clientWidth || 800;
+        const height = container.clientHeight || 600;
+        const GRID_SIZE = 80; 
+
+        // Listes par défaut
+        const defaultGenres = [
+            { id: "scifi", label: "SF", color: "#003CA6" },
+            { id: "fantasy", label: "Fantasy", color: "#662483" },
+            { id: "polar", label: "Polar, thriller", color: "#E05206" },
+            { id: "histoire", label: "Histoire", color: "#007852" },
+            { id: "aventure",    label: "Aventure", color: "#FFCD00" },
+            { id: "comique",    label: "Humour", color: "#5CAD4E" },
+            { id: "ado",  label: "Adolescence", color: "#A0A0A0" }
+        ];
+
+        const defaultEmojis = [	
+			{ char: "😻", label: "Coup de coeur" },		
+			{ char: "📖️", label: "Roman" },
+			{ char: "💢", label: "Manga, webtoon" },
+			{ char: "💥️", label: "Comics, roman graphique" },
+			{ char: "🗯️", label: "BD" },
+			{ char: "🧚🏻", label: "Conte" },
+			{ char: "🏯", label: "Classique" },
+			{ char: "🐴️", label: "Avec des animaux" },
+			{ char: "🎬", label: "Adapté sur écran" },
+			{ char: "🇫🇷", label: "Francophone" },
+            		{ char: "🇺🇸", label: "Anglophone" },
+			{ char: "🇩🇪", label: "Germanophone" },
+			{ char: "🇷🇺", label: "Russophone" },
+			{ char: "🇪🇸", label: "Hispanophone" },
+			{ char: "🇮🇹", label: "Italophone" },
+			{ char: "🇨🇳", label: "Sinophone" },
+			{ char: "🇫🇮", label: "Finlandais" },
+           		{ char: "📍", label: "D'ici !" },
+            		{ char: "⚠️", label: "Lecture sensible" }
+        ];
+
+        let genresDef = JSON.parse(localStorage.getItem('metroGenres')) || JSON.parse(JSON.stringify(defaultGenres));
+        let emojiOptions = JSON.parse(localStorage.getItem('metroEmojis')) || JSON.parse(JSON.stringify(defaultEmojis));
+        let genreColors = {};
+
+        function refreshColors() {
+            genreColors = {};
+            genresDef.forEach(g => genreColors[g.id] = g.color);
+        }
+        refreshColors();
+
+        // --- Interface ---
+        function initUI() {
+            const s1 = document.getElementById('genreSelect');
+            const s2 = document.getElementById('genreSelect2');
+            const sEmoji = document.getElementById('emojiSelect');
+            const legend = document.getElementById('legend');
+            
+            const val1 = s1.value; const val2 = s2.value; const valE = sEmoji.value;
+
+            s1.innerHTML = ''; s2.innerHTML = ''; sEmoji.innerHTML = '';
+            legend.innerHTML = '';
+
+            const emptyOption = document.createElement('option');
+            emptyOption.value = ""; emptyOption.text = "(Genre 2 : Aucun)";
+            s2.add(emptyOption);
+
+            genresDef.forEach(g => {
+                const opt1 = document.createElement('option');
+                opt1.value = g.id; opt1.text = g.label;
+                opt1.style.color = g.color; opt1.style.fontWeight = "bold"; s1.add(opt1);
+
+                const opt2 = document.createElement('option');
+                opt2.value = g.id; opt2.text = g.label;
+                opt2.style.color = g.color; opt2.style.fontWeight = "bold"; s2.add(opt2);
+            });
+
+            const emptyEmojiOption = document.createElement('option');
+            emptyEmojiOption.value = ""; emptyEmojiOption.text = "(Aucun)";
+            sEmoji.add(emptyEmojiOption);
+
+            emojiOptions.forEach(e => {
+                const opt = document.createElement('option');
+                opt.value = e.char;
+                opt.text = `${e.char} ${e.label}`;
+                sEmoji.add(opt);
+            });
+
+            const divGenres = document.createElement('div');
+            divGenres.innerHTML = '<div class="legend-section-title">Lignes (Genres)</div>';
+            genresDef.forEach(g => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `<div class="legend-color" style="background-color: ${g.color};"></div><span>${g.label}</span>`;
+                divGenres.appendChild(item);
+            });
+            legend.appendChild(divGenres);
+
+            const divAttribs = document.createElement('div');
+            divAttribs.innerHTML = '<div class="legend-section-title">Marqueurs</div>';
+            emojiOptions.forEach(e => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `<span class="legend-emoji-icon">${e.char}</span><span>${e.label}</span>`;
+                divAttribs.appendChild(item);
+            });
+            legend.appendChild(divAttribs);
+
+            if (val1 && genresDef.find(g => g.id === val1)) s1.value = val1;
+            if (val2 && genresDef.find(g => g.id === val2)) s2.value = val2;
+            if (valE) sEmoji.value = valE;
+        }
+
+        // --- Modales ---
+        function openSettings() {
+            const genresForm = document.getElementById('genresListForm');
+            genresForm.innerHTML = ''; 
+            genresDef.forEach((g, index) => addGenreRowToForm(g.id, g.label, g.color, index));
+
+            const emojisForm = document.getElementById('emojisListForm');
+            emojisForm.innerHTML = '';
+            emojiOptions.forEach((e, index) => addEmojiRowToForm(e.char, e.label));
+
+            document.getElementById('settingsModal').style.display = 'flex';
+        }
+        function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+        
+        function openExportModal() { document.getElementById('exportModal').style.display = 'flex'; }
+        function closeExportModal() { document.getElementById('exportModal').style.display = 'none'; }
+
+        // --- Rows Logic ---
+        function addGenreRowToForm(id, label, color, index) {
+            const container = document.getElementById('genresListForm');
+            const div = document.createElement('div');
+            div.className = 'setting-row genre-row';
+            div.dataset.id = id || `new_${Date.now()}`; 
+            div.innerHTML = `
+                <input type="color" value="${color}" class="edit-color">
+                <input type="text" value="${label}" class="edit-label" placeholder="Nom du genre">
+                <button class="delete-btn icon-btn" onclick="this.parentElement.remove()">🗑️</button>
+            `;
+            container.appendChild(div);
+        }
+        function addNewGenreRow() { addGenreRowToForm(`custom_${Date.now()}`, "Nouveau Genre", "#000000"); }
+
+        function addEmojiRowToForm(char, label) {
+            const container = document.getElementById('emojisListForm');
+            const div = document.createElement('div');
+            div.className = 'setting-row emoji-row';
+            div.innerHTML = `
+                <input type="text" value="${char}" class="edit-emoji" placeholder="Icône" maxlength="4">
+                <input type="text" value="${label}" class="edit-label" placeholder="Libellé du marqueur">
+                <button class="delete-btn icon-btn" onclick="this.parentElement.remove()">🗑️</button>
+            `;
+            container.appendChild(div);
+        }
+        function addNewEmojiRow() { addEmojiRowToForm("📍", "Nouveau marqueur"); }
+
+        function saveSettings() {
+            const gRows = document.querySelectorAll('#genresListForm .genre-row');
+            const newGenres = [];
+            gRows.forEach(row => {
+                const color = row.querySelector('.edit-color').value;
+                const label = row.querySelector('.edit-label').value.trim();
+                const id = row.dataset.id;
+                if (label) newGenres.push({ id, label, color });
+            });
+
+            const eRows = document.querySelectorAll('#emojisListForm .emoji-row');
+            const newEmojis = [];
+            eRows.forEach(row => {
+                const char = row.querySelector('.edit-emoji').value.trim();
+                const label = row.querySelector('.edit-label').value.trim();
+                if (char && label) newEmojis.push({ char, label });
+            });
+
+            if (newGenres.length === 0) { alert("Il faut au moins un genre !"); return; }
+            if (newEmojis.length === 0) { alert("Il faut au moins un marqueur !"); return; }
+
+            genresDef = newGenres;
+            emojiOptions = newEmojis;
+            localStorage.setItem('metroGenres', JSON.stringify(genresDef)); 
+            localStorage.setItem('metroEmojis', JSON.stringify(emojiOptions)); 
+            refreshColors(); initUI(); updateGraph(); closeSettings();
+        }
+        window.onclick = function(event) { 
+            if (event.target == document.getElementById('settingsModal')) closeSettings(); 
+            if (event.target == document.getElementById('exportModal')) closeExportModal(); 
+        }
+
+        // --- Export PDF ---
+        async function exportPDF(format) {
+            closeExportModal();
+            const element = document.getElementById('metro-map');
+            
+            // 1. Préparation pour l'export (pour que la légende soit complète)
+            element.classList.add('exporting');
+            
+            // On attend un peu que le rendu se fasse
+            await new Promise(r => setTimeout(r, 100));
+
+            try {
+                // 2. Capture avec html2canvas
+                // Scale 2 pour bonne qualité
+                const canvas = await html2canvas(element, { 
+                    scale: 2,
+                    backgroundColor: "#ffffff",
+                    useCORS: true
+                });
+
+                const imgData = canvas.toDataURL('image/png');
+
+                // 3. Calculs dimensions
+                const imgWidth = canvas.width;
+                const imgHeight = canvas.height;
+                const ratio = imgWidth / imgHeight;
+
+                // Orientation automatique : Si l'image est plus large que haute -> Paysage
+                const orientation = ratio >= 1 ? 'l' : 'p';
+                
+                // Initialisation PDF
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF(orientation, 'mm', format);
+
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                
+                // Adapter l'image à la page (avec marge)
+                const margin = 10;
+                const maxWidth = pageWidth - (margin * 2);
+                const maxHeight = pageHeight - (margin * 2);
+
+                let finalWidth = maxWidth;
+                let finalHeight = finalWidth / ratio;
+
+                if (finalHeight > maxHeight) {
+                    finalHeight = maxHeight;
+                    finalWidth = finalHeight * ratio;
+                }
+                
+                // Centrage
+                const x = (pageWidth - finalWidth) / 2;
+                const y = (pageHeight - finalHeight) / 2;
+
+                pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
+                pdf.save(`metro-map-${format}.pdf`);
+
+            } catch (err) {
+                console.error("Erreur Export PDF:", err);
+                alert("Une erreur est survenue lors de l'export.");
+            } finally {
+                // 4. Nettoyage
+                element.classList.remove('exporting');
+            }
+        }
+
+        // --- D3 Engine ---
+        let nodes = []; 
+        let links = []; 
+
+        const svg = d3.select("#metro-map").append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .attr("viewBox", [0, 0, width, height]);
+
+        const g = svg.append("g");
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.id).strength(0)) 
+            .force("collide", d3.forceCollide(30).strength(1));
+
+        svg.call(d3.zoom()
+            .extent([[0, 0], [width, height]])
+            .scaleExtent([0.1, 4])
+            .on("zoom", ({transform}) => g.attr("transform", transform)));
+
+        let linkGroup = g.append("g").attr("class", "links");
+        let nodeGroup = g.append("g").attr("class", "nodes");
+        let labelGroup = g.append("g").attr("class", "labels");
+
+        function saveData() {
+            const cleanLinks = links.map(l => ({
+                source: (typeof l.source === 'object') ? l.source.id : l.source,
+                target: (typeof l.target === 'object') ? l.target.id : l.target,
+                genreLine: l.genreLine 
+            }));
+            const cleanNodes = nodes.map(n => ({
+                id: n.id, name: n.name, genres: n.genres, 
+                emoji: n.emoji, 
+                fx: n.fx, fy: n.fy, x: n.fx, y: n.fy
+            }));
+            const data = { nodes: cleanNodes, links: cleanLinks };
+            localStorage.setItem('metroMapV5', JSON.stringify(data));
+        }
+
+        function loadData() {
+            const dataString = localStorage.getItem('metroMapV5');
+            if (dataString) {
+                try {
+                    const data = JSON.parse(dataString);
+                    nodes = data.nodes || [];
+                    let rawLinks = data.links || [];
+                    
+                    nodes.forEach(n => {
+                        if (!n.genres) n.genres = [n.genre]; 
+                        if (n.emoji === undefined) n.emoji = "📚";
+                        if (n.x && n.fx === undefined) n.fx = snapToGrid(n.x);
+                        if (n.y && n.fy === undefined) n.fy = snapToGrid(n.y);
+                    });
+
+                    // FIX ROBUSTE : Résolution manuelle des liens (ID -> Objet)
+                    // Cela évite que D3 échoue parfois à faire le lien si la simulation est "froide"
+                    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+                    
+                    links = rawLinks.map(l => {
+                        // On gère le cas où c'est déjà un objet ou juste un ID
+                        const sourceId = (typeof l.source === 'object') ? l.source.id : l.source;
+                        const targetId = (typeof l.target === 'object') ? l.target.id : l.target;
+                        
+                        return {
+                            source: nodeMap.get(sourceId),
+                            target: nodeMap.get(targetId),
+                            genreLine: l.genreLine
+                        };
+                    }).filter(l => l.source && l.target); // On ne garde que les liens valides
+
+                    updateGraph();
+                } catch (e) { console.error(e); }
+            }
+        }
+
+        function resetMap() {
+            localStorage.removeItem('metroMapV5');
+            nodes = []; links = [];
+            linkGroup.selectAll("*").remove();
+            nodeGroup.selectAll("*").remove();
+            labelGroup.selectAll("*").remove();
+            simulation.nodes([]); simulation.force("link").links([]);
+            updateGraph();
+        }
+
+        function updateGraph() {
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);
+            simulation.on("tick", ticked);
+            simulation.alpha(1).restart(); 
+            
+            let link = linkGroup.selectAll("line").data(links);
+            link.exit().remove();
+            const linkEnter = link.enter().append("line")
+                .attr("stroke-width", 6)
+                .attr("stroke-linecap", "round") 
+                .attr("opacity", 0.8);
+            link = linkEnter.merge(link)
+                .attr("stroke", d => genreColors[d.genreLine] || "#999");
+
+            let node = nodeGroup.selectAll("g.node").data(nodes, d => d.id);
+            node.exit().remove();
+
+            const nodeEnter = node.enter().append("g")
+                .attr("class", "node")
+                .attr("cursor", "grab")
+                .call(drag(simulation));
+
+            nodeEnter.append("circle")
+                .attr("r", 0).attr("stroke-width", 5)
+                .transition().duration(400).attr("r", 14);
+
+            nodeEnter.append("text")
+                .attr("class", "node-emoji")
+                .attr("text-anchor", "middle").attr("dy", "0.35em");
+
+            const nodeMerge = nodeEnter.merge(node);
+            
+            nodeMerge.select("circle")
+                .attr("stroke", d => genreColors[d.genres[0]] || "#333")
+                .attr("fill", d => (d.genres[1] && genreColors[d.genres[1]]) ? genreColors[d.genres[1]] : "white");
+
+            nodeMerge.select("text.node-emoji")
+                .text(d => (d.emoji !== undefined) ? d.emoji : "📚");
+
+            let label = labelGroup.selectAll("text").data(nodes, d => d.id);
+            label.exit().remove();
+            const labelEnter = label.enter().append("text")
+                .attr("class", "station-label")
+                .attr("dx", 20).attr("dy", 5);
+            label = labelEnter.merge(label).text(d => d.name);
+        }
+
+        function ticked() {
+            linkGroup.selectAll("line")
+                .attr("x1", d => d.source.x ?? d.source.fx ?? 0)
+                .attr("y1", d => d.source.y ?? d.source.fy ?? 0)
+                .attr("x2", d => d.target.x ?? d.target.fx ?? 0)
+                .attr("y2", d => d.target.y ?? d.target.fy ?? 0);
+            nodeGroup.selectAll("g.node").attr("transform", d => `translate(${d.x || d.fx},${d.y || d.fy})`);
+            labelGroup.selectAll("text").attr("x", d => d.x || d.fx).attr("y", d => d.y || d.fy);
+        }
+
+        function snapToGrid(val) { return Math.round(val / GRID_SIZE) * GRID_SIZE; }
+
+        function findLastNodeWithGenre(genreId) {
+            for (let i = nodes.length - 1; i >= 0; i--) {
+                if (nodes[i].genres && nodes[i].genres.includes(genreId)) return nodes[i];
+            }
+            return null;
+        }
+
+        function getOccupiedPositions() {
+            const occupied = new Set();
+            nodes.forEach(n => occupied.add(`${n.fx},${n.fy}`));
+            return occupied;
+        }
+
+        function findNextGridPosition(startNode) {
+            const occupied = getOccupiedPositions();
+            const cx = startNode.fx;
+            const cy = startNode.fy;
+            const candidates = [
+                { x: cx + GRID_SIZE, y: cy }, 
+                { x: cx, y: cy + GRID_SIZE }, 
+                { x: cx, y: cy - GRID_SIZE }, 
+                { x: cx - GRID_SIZE, y: cy },
+                { x: cx + GRID_SIZE, y: cy + GRID_SIZE },
+                { x: cx + GRID_SIZE, y: cy - GRID_SIZE }
+            ];
+            for (let pos of candidates) { if (!occupied.has(`${pos.x},${pos.y}`)) return pos; }
+            return { x: cx + GRID_SIZE * 2, y: cy };
+        }
+
+        function addBook() {
+            const input = document.getElementById('bookInput');
+            const s1 = document.getElementById('genreSelect');
+            const s2 = document.getElementById('genreSelect2');
+            const sEmoji = document.getElementById('emojiSelect');
+            
+            const bookName = input.value.trim();
+            const genre1 = s1.value; 
+            const genre2 = s2.value;
+            const emojiChoice = sEmoji.value;
+
+            if (!bookName) return;
+
+            const bookGenres = [genre1];
+            if (genre2 && genre2 !== genre1) bookGenres.push(genre2);
+
+            let newFx, newFy;
+            const lastNodeG1 = findLastNodeWithGenre(genre1);
+
+            if (lastNodeG1) {
+                const pos = findNextGridPosition(lastNodeG1);
+                newFx = pos.x; newFy = pos.y;
+            } else {
+                if (nodes.length === 0) {
+                    newFx = snapToGrid(width / 2); newFy = snapToGrid(height / 2);
+                } else {
+                    const firstNode = nodes[0];
+                    let yOffset = GRID_SIZE;
+                    let occupied = getOccupiedPositions();
+                    while (occupied.has(`${firstNode.fx},${firstNode.fy + yOffset}`)) {
+                        yOffset += GRID_SIZE;
+                    }
+                    newFx = firstNode.fx; newFy = firstNode.fy + yOffset;
+                }
+            }
+
+            const newStation = {
+                id: Date.now(),
+                name: bookName,
+                genres: bookGenres,
+                emoji: emojiChoice,
+                fx: newFx, fy: newFy,
+                x: newFx, y: newFy
+            };
+
+            if (lastNodeG1) links.push({ source: lastNodeG1, target: newStation, genreLine: genre1 });
+            if (bookGenres.length > 1) {
+                const g2 = bookGenres[1];
+                const lastNodeG2 = findLastNodeWithGenre(g2);
+                if (lastNodeG2) links.push({ source: lastNodeG2, target: newStation, genreLine: g2 });
+            }
+
+            nodes.push(newStation);
+            updateGraph();
+            saveData();
+            input.value = ""; input.focus();
+        }
+
+        function undoLastBook() {
+            if (nodes.length === 0) return;
+            const removedNode = nodes.pop();
+            links = links.filter(l => {
+                const sid = (typeof l.source === 'object') ? l.source.id : l.source;
+                const tid = (typeof l.target === 'object') ? l.target.id : l.target;
+                return sid !== removedNode.id && tid !== removedNode.id;
+            });
+            updateGraph();
+            saveData();
+        }
+
+        function handleEnter(e) { if (e.key === 'Enter') addBook(); }
+
+        function drag(simulation) {
+            function dragstarted(event) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                event.subject.fx = null; event.subject.fy = null;
+                d3.select(this).attr("cursor", "grabbing");
+            }
+            function dragged(event) {
+                event.subject.x = event.x; event.subject.y = event.y;
+            }
+            function dragended(event) {
+                if (!event.active) simulation.alphaTarget(0);
+                event.subject.fx = snapToGrid(event.x);
+                event.subject.fy = snapToGrid(event.y);
+                event.subject.x = event.subject.fx;
+                event.subject.y = event.subject.fy;
+                d3.select(this).attr("cursor", "grab");
+                saveData();
+                updateGraph();
+            }
+            return d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended);
+        }
+
+        initUI();
+        loadData();
+
+    </script>
+</body>
+</html>
