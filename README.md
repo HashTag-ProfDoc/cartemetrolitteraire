@@ -1,0 +1,1 @@
+L'idée était de créer un générateur de carte de métro avec des noms de romans/BD, etc, afin d'extraire des itinéraires de lecture en PDF. Chaque genre a une couleur, donner deux genres permet l'intersection des lignes. Le résultat n'est pas abouti et à améliorer.
